@@ -2,17 +2,16 @@
 
 ### A tiny reproduction of InstructGPT: post-training Llama-3.2-1B into a chat assistant with SFT, reward modeling and PPO, plus DPO as a modern alternative.
 
-Every training stage comes in two versions: one built on [TRL](https://github.com/huggingface/trl), and one written directly on `transformers.Trainer` so the losses and training loops are easy to read.
+Every training stage comes in two versions: one built on the `TRL` library, and one written directly on `transformers.Trainer` so the losses and training loops are easy to read.
 
 ## Pipelines
 
-- **RLHF:** Llama-3.2-1B → SFT (OASST2) → Reward Model (UltraFeedback `train_prefs`) → PPO (UltraFeedback `train_gen` prompts)
-- **DPO:** Llama-3.2-1B → SFT (OASST2) → DPO (UltraFeedback `train_prefs`)
+- **RLHF:** Llama-3.2-1B → SFT (OASST2) → Reward Model (UltraFeedback pairs) → PPO (UltraFeedback prompts)
+- **DPO:** Llama-3.2-1B → SFT (OASST2) → DPO (UltraFeedback pairs)
 
 ## Project Structure
 ```
 tiny-instructgpt
-├── ckpts/                      # model checkpoints (created during training)
 ├── data/                       # downloaded + processed data
 │   └── README.md
 ├── scripts
@@ -27,11 +26,11 @@ tiny-instructgpt
 │       ├── train_ppo.py
 │       ├── train_dpo.py        train_dpo_trl.py
 │       └── chat.py             # inference
-├── CHANGELOG.md
 ├── README.md
 └── requirements.txt
 ```
-Each stage has a from-scratch version (`train_*.py`) and a TRL version (`train_*_trl.py`). Both save to the same checkpoint folder, so either one can feed the next stage. All stages use the Llama-3.2-Instruct chat template.
+Each stage has a from-scratch version (`train_*.py`) and a TRL version (`train_*_trl.py`). Both save to the same 
+checkpoint folder, so either one can feed the next stage. All stages use the Llama-3.2-Instruct chat template.
 
 ## Quick Start
 ```bash
@@ -42,7 +41,7 @@ bash scripts/run_dpo.sh      # SFT → DPO
 # Use the from-scratch implementations instead of TRL
 USE_TRL=false bash scripts/run_rlhf.sh
 ```
-Checkpoints are saved under `ckpts/` (e.g. `ckpts/Llama-3.2-1B-sft`, `ckpts/Llama-3.2-1B-rm`, `ckpts/Llama-3.2-1B-ppo`).
+Checkpoints are saved under `ckpts/`.
 
 ## Data Preparation
 OASST2 is downloaded and converted into chat-message conversations, following the highest-ranked reply at each turn:
@@ -53,7 +52,7 @@ Details of the data are in [`data/README.md`](data/README.md).
 
 ## Step by Step
 ```bash
-cd src/tiny_instructgpt   # checkpoint paths stay relative to the project root
+cd src/tiny_instructgpt
 ```
 
 ### Step 1: Supervised Fine-Tuning
