@@ -1,81 +1,78 @@
-# AI Assistant Demo
+# Tiny InstructGPT
 
-### This demo showcases a simple workflow for fine-tuning a pretrained LLM and turning it into a basic AI assistant.
+### A tiny reproduction of InstructGPT: post-training Llama-3.2-1B into a chat assistant with SFT, reward modeling and PPO, plus DPO as a modern alternative.
 
-## Introduction
+Every training stage comes in two versions: one built on [TRL](https://github.com/huggingface/trl), and one written directly on `transformers.Trainer` so the losses and training loops are easy to read.
 
-This repository implements two popular post-training alignment approaches:
+## Pipelines
 
-1. **Classic RLHF pipeline**
-   - **Supervised fine-tuning (SFT)** on high-quality demonstrations
-   - **Reward model (RM)** on comparison data  
-   - Reinforcement learning from human feedback with **Proximal Policy Optimization (PPO)**
-
-2. **Direct preference optimization (DPO) pipeline**  
-   - **Supervised fine-tuning (SFT)** on high-quality demonstrations  
-   - **Direct preference optimization (DPO)**
+- **RLHF:** Llama-3.2-1B → SFT (OASST2) → Reward Model (UltraFeedback `train_prefs`) → PPO (UltraFeedback `train_gen` prompts)
+- **DPO:** Llama-3.2-1B → SFT (OASST2) → DPO (UltraFeedback `train_prefs`)
 
 ## Project Structure
 ```
-ai-assistant-demo
-├── datasets
-│   ├── demonstration_data
-│   │   └── open-assistant-oasst2
-│   │       └── data_preprocessing.py
-│   ├── get_dataset.sh
-│   └── README.md
-├── README.md
-├── requirements.txt
+tiny-instructgpt
+├── ckpts/                      # model checkpoints (created during training)
+├── data/                       # downloaded + processed data
+│   └── README.md
 ├── scripts
-│   ├── dpo_training_pipeline.sh
-│   └── rlhf_training_pipeline.sh
-└── src
-    └── ai-assistant-demo
-        ├── inference
-        │   ├── dpo_chat.py
-        │   └── rlhf_chat.py
-        ├── train_dpo.py
-        ├── train_rlhf.py
-        ├── train_rm.py
-        ├── train_sft.py
-        ├── trl_train_dpo.py
-        ├── trl_train_rm.py
-        └── trl_train_sft.py
+│   ├── get_data.sh             # download + prepare OASST2
+│   ├── run_rlhf.sh             # SFT → RM → PPO
+│   └── run_dpo.sh              # SFT → DPO
+├── src
+│   └── tiny_instructgpt
+│       ├── prepare_oasst2.py   # OASST2 trees → chat messages
+│       ├── train_sft.py        train_sft_trl.py
+│       ├── train_rm.py         train_rm_trl.py
+│       ├── train_ppo.py
+│       ├── train_dpo.py        train_dpo_trl.py
+│       └── chat.py             # inference
+├── CHANGELOG.md
+├── README.md
+└── requirements.txt
 ```
+Each stage has a from-scratch version (`train_*.py`) and a TRL version (`train_*_trl.py`). Both save to the same checkpoint folder, so either one can feed the next stage. All stages use the Llama-3.2-Instruct chat template.
+
+## Quick Start
+```bash
+bash scripts/get_data.sh     # download + prepare OASST2
+bash scripts/run_rlhf.sh     # SFT → RM → PPO
+bash scripts/run_dpo.sh      # SFT → DPO
+
+# Use the from-scratch implementations instead of TRL
+USE_TRL=false bash scripts/run_rlhf.sh
+```
+Checkpoints are saved under `ckpts/` (e.g. `ckpts/Llama-3.2-1B-sft`, `ckpts/Llama-3.2-1B-rm`, `ckpts/Llama-3.2-1B-ppo`).
 
 ## Data Preparation
-
-### OpenAssistant Conversations (OASST2)
-Download the file:
+OASST2 is downloaded and converted into chat-message conversations, following the highest-ranked reply at each turn:
 ```bash
-cd datasets
-bash get_dataset.sh
+bash scripts/get_data.sh
+```
+Details of the data are in [`data/README.md`](data/README.md).
+
+## Step by Step
+```bash
+cd src/tiny_instructgpt   # checkpoint paths stay relative to the project root
 ```
 
-Convert into ChatML prompt format:
+### Step 1: Supervised Fine-Tuning
 ```bash
-cd demonstration/open-assistant-oasst2
-python data_preprocessing.py
-```
-
-## Supervised Fine-Tuning
-Supervised fine-tuning on the above OASST2 dataset, using **Llama-3.2-1B** as the base model:
-```bash
-python ./src/ai-assistant-demo/trl_train_sft.py \
+python train_sft_trl.py \
   --batch_size 4 \
-  --lr 2e-4 \
+  --learning_rate 2e-4 \
   --num_epochs 2 \
   --max_length 512 \
   --save_steps 2_000 \
   --no_resume
 ```
 
-<details><summary> Custom supervised fine-tuning without using the TRL package: </summary>
+<details><summary> From scratch (without TRL): </summary>
 
 ```bash
-python ./src/ai-assistant-demo/train_sft.py \
+python train_sft.py \
   --batch_size 4 \
-  --lr 2e-4 \
+  --learning_rate 2e-4 \
   --num_epochs 2 \
   --max_length 512 \
   --save_steps 2_000 \
@@ -83,24 +80,25 @@ python ./src/ai-assistant-demo/train_sft.py \
 ```
 </details>
 
-## Reward Model Training
-Reward model training on preference datasets (e.g., Anthropic/hh-rlhf):
+### Step 2: Reward Model
 ```bash
-python ./src/ai-assistant-demo/trl_train_rm.py \
+python train_rm_trl.py \
+  --sft_model ckpts/Llama-3.2-1B-sft \
   --batch_size 4 \
-  --lr 1e-5 \
+  --learning_rate 1e-5 \
   --num_epochs 1 \
   --max_length 512 \
   --save_steps 5_000 \
   --no_resume
 ```
 
-<details><summary> Custom reward model training without using the TRL package: </summary>
+<details><summary> From scratch (without TRL): </summary>
 
 ```bash
-python ./src/ai-assistant-demo/train_rm.py \
+python train_rm.py \
+  --sft_model ckpts/Llama-3.2-1B-sft \
   --batch_size 4 \
-  --lr 1e-5 \
+  --learning_rate 1e-5 \
   --num_epochs 1 \
   --max_length 512 \
   --save_steps 5_000 \
@@ -108,26 +106,27 @@ python ./src/ai-assistant-demo/train_rm.py \
 ```
 </details>
 
-## Reinforcement Learning (PPO)
-Reinforcement learning from human feedback with PPO:
+### Step 3: PPO
 ```bash
-python ./src/ai-assistant-demo/train_rlhf.py \
+python train_ppo.py \
+  --sft_model ckpts/Llama-3.2-1B-sft \
+  --reward_model ckpts/Llama-3.2-1B-rm \
   --batch_size 2 \
-  --lr 1e-6 \
-  --num_epochs 10 \
-  --max_length 512 \
-  --gen_max_length 512 \
+  --learning_rate 1e-6 \
+  --num_epochs 1 \
+  --ppo_epochs 4 \
+  --max_new_tokens 512 \
   --clip_range 0.2 \
   --kl_coef 0.05 \
   --logging_steps 10
 ```
 
-## Direct Preference Optimization (DPO)
-Direct preference optimization, trained directly from the SFT model:
+### Alternative: DPO
 ```bash
-python ./src/ai-assistant-demo/trl_train_dpo.py \
+python train_dpo_trl.py \
+  --sft_model ckpts/Llama-3.2-1B-sft \
   --batch_size 2 \
-  --lr 5e-5 \
+  --learning_rate 5e-7 \
   --num_epochs 1 \
   --max_length 512 \
   --logging_steps 1_000 \
@@ -136,12 +135,13 @@ python ./src/ai-assistant-demo/trl_train_dpo.py \
   --no_resume
 ```
 
-<details><summary> Direct preference optimization without using the TRL package: </summary>
+<details><summary> From scratch (without TRL): </summary>
 
 ```bash
-python ./src/ai-assistant-demo/train_dpo.py \
+python train_dpo.py \
+  --sft_model ckpts/Llama-3.2-1B-sft \
   --batch_size 2 \
-  --lr 5e-5 \
+  --learning_rate 5e-7 \
   --num_epochs 1 \
   --max_length 512 \
   --logging_steps 1_000 \
@@ -149,21 +149,12 @@ python ./src/ai-assistant-demo/train_dpo.py \
   --eval_steps 2_000 \
   --no_resume
 ```
-
 </details>
 
 ## Inference
-Test the RLHF/DPO model:
 ```bash
-# RLHF model
-python ./src/ai-assistant-demo/inference/rlhf_chat.py \
-  --prompt "How can I build a daily drawing habit?"
-```
-
-```bash
-# DPO model
-python ./src/ai-assistant-demo/inference/dpo_chat.py \
-  --prompt "How can I build a daily drawing habit?"
+python chat.py --model_path ckpts/Llama-3.2-1B-ppo --prompt "How can I build a daily drawing habit?"
+python chat.py --model_path ckpts/Llama-3.2-1B-dpo --prompt "How can I build a daily drawing habit?"
 ```
 
 ## Sample Outputs
@@ -201,11 +192,8 @@ It's important to understand that creating a daily drawing habit takes time and 
 Remember, building a daily drawing habit takes time and effort, but it's a rewarding hobby that can be very gratifying to see progress over time.
 ```
 
-## Scripts:
-- Training (RLHF): `scripts/rlhf_training_pipeline.sh`
-- Training (DPO): `scripts/dpo_training_pipeline.sh`
-
-## Reference & Acknowledgement:
+## References & Acknowledgements
 - InstructGPT: [[arXiv](https://arxiv.org/abs/2203.02155)]
+- DPO: [[arXiv](https://arxiv.org/abs/2305.18290)]
 - OpenAssistant: [[GitHub](https://github.com/LAION-AI/Open-Assistant)] [[arXiv](https://arxiv.org/abs/2304.07327)]
 - TRL - Transformer Reinforcement Learning: [[GitHub](https://github.com/huggingface/trl)]

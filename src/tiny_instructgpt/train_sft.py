@@ -1,35 +1,35 @@
 import argparse
-import os
+from pathlib import Path
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer, DataCollatorForLanguageModeling
 import datasets
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ROOT = Path(__file__).resolve().parents[2]
 
 parser = argparse.ArgumentParser(description="supervised fine-tuning")
 parser.add_argument('--base_model', default='unsloth/Llama-3.2-1B', type=str)
-parser.add_argument('--dataset_path', default="../../datasets/demonstration_data/open-assistant-oasst2/processed", type=str)
-parser.add_argument('--dataset_name', default="oasst2_chatml.jsonl", type=str)
+parser.add_argument('--template_model', default='unsloth/Llama-3.2-1B-Instruct', type=str)
+parser.add_argument('--dataset_file', default="data/oasst2/oasst2_messages.jsonl", type=str)
 parser.add_argument('--batch_size', default=4, type=int)
-parser.add_argument('--lr', default=2e-4, type=float)
+parser.add_argument('--learning_rate', default=2e-4, type=float)
 parser.add_argument('--num_epochs', default=2, type=int)
 parser.add_argument('--max_length', default=512, type=int)
 parser.add_argument('--save_steps', default=2_000, type=int)
 parser.add_argument('--no_resume', action='store_true')
-parser.add_argument('--output_dir', default="./checkpoints", type=str)
-parser.add_argument('--output_name', default="fine-tuned-model", type=str)
+parser.add_argument('--output_dir', default="ckpts", type=str)
+parser.add_argument('--output_name', default="sft", type=str)
 args = parser.parse_args()
 
 def train(args):
-    data_files = {"train": os.path.join(SCRIPT_DIR, args.dataset_path, args.dataset_name)}
-    raw_dataset = datasets.load_dataset('json', data_files=data_files)
+    raw_dataset = datasets.load_dataset('json', data_files={"train": str(ROOT / args.dataset_file)})
 
-    model = AutoModelForCausalLM.from_pretrained(args.base_model)
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    model = AutoModelForCausalLM.from_pretrained(args.base_model, dtype=torch.float32)
+    tokenizer = AutoTokenizer.from_pretrained(args.template_model)
 
     def tokenize_function(examples):
-        tokenized_text = tokenizer(examples['text'], padding=False, truncation=True, max_length=args.max_length)
-
-        return tokenized_text
+        texts = [tokenizer.apply_chat_template(messages, tokenize=False) for messages in examples['messages']]
+        return tokenizer(texts, add_special_tokens=False, truncation=True, max_length=args.max_length)
 
     tokenized_dataset = raw_dataset.map(
         tokenize_function,
@@ -38,13 +38,12 @@ def train(args):
     )
     data_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
 
-    os.makedirs(os.path.join(SCRIPT_DIR, args.output_dir), exist_ok=True)
-    output_dir = os.path.join(str(SCRIPT_DIR), args.output_dir, f"{args.base_model.split('/')[-1]}-{args.output_name}")
+    output_dir = str(ROOT / f"{args.output_dir}/{args.base_model.split('/')[-1]}-{args.output_name}")
 
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=args.batch_size,
-        learning_rate=args.lr,
+        learning_rate=args.learning_rate,
         num_train_epochs=args.num_epochs,
         logging_steps=500,
         save_steps=args.save_steps,
@@ -55,8 +54,10 @@ def train(args):
         args=training_args,
         train_dataset=tokenized_dataset['train'],
         data_collator=data_collator,
+        processing_class=tokenizer,
     )
     trainer.train(resume_from_checkpoint=not args.no_resume)
+    trainer.save_model(output_dir)
 
 def main():
     train(args)
