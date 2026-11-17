@@ -154,7 +154,6 @@ python train_dpo.py \
 ## Inference
 ```bash
 python chat.py --model_path ckpts/Llama-3.2-1B-ppo --prompt "How can I build a daily drawing habit?"
-python chat.py --model_path ckpts/Llama-3.2-1B-dpo --prompt "How can I build a daily drawing habit?"
 ```
 
 ## Sample Outputs
