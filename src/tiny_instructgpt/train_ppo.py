@@ -45,7 +45,6 @@ def whiten(advantages, mask):
     return (advantages - mean) * torch.rsqrt(variance + 1e-8) * mask
 
 def build_response_mask(response_ids, eos_token_id):
-    # Keep tokens up to and including the first EOS
     is_eos = (response_ids == eos_token_id).int()
     after_eos = (is_eos.cumsum(dim=1) - is_eos) > 0
     return (~after_eos).float()
@@ -59,8 +58,6 @@ def compute_scores(reward_model, tokenizer, prompts, responses):
     return reward_model(**inputs.to(reward_model.device)).logits.squeeze(-1).float()
 
 def response_logprobs_and_values(model, value_head, full_ids, attention_mask, prompt_length, response_ids):
-    # Logits at position t predict token t + 1, so response tokens are predicted from prompt_length - 1 onwards
-    # Position ids that skip left padding, matching what generate() used
     position_ids = (attention_mask.cumsum(dim=1) - 1).clamp(min=0)
     outputs = model(full_ids, attention_mask=attention_mask, position_ids=position_ids, output_hidden_states=value_head is not None)
     logits = outputs.logits[:, prompt_length - 1:-1, :].float()
@@ -95,7 +92,6 @@ def train(args):
     tokenizer.padding_side = 'left'
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # Trainable weights in float32 (forward passes run under bf16 autocast); frozen models stay bf16
     model = AutoModelForCausalLM.from_pretrained(sft_model_path, dtype=torch.float32).to(device)
     value_head = nn.Linear(model.config.hidden_size, 1).to(device)
     ref_model = AutoModelForCausalLM.from_pretrained(sft_model_path, dtype=torch.bfloat16).to(device)
@@ -122,7 +118,6 @@ def train(args):
                                       max_length=args.max_length, return_tensors='pt').to(device)
             prompt_length = prompt_inputs['input_ids'].shape[1]
 
-            # Rollout: generate, score, and record old / reference log-probs
             with torch.no_grad(), torch.autocast(device.type, dtype=torch.bfloat16):
                 generated_ids = model.generate(
                     **prompt_inputs,
@@ -147,7 +142,6 @@ def train(args):
                 ref_logprobs, _ = response_logprobs_and_values(ref_model, None, full_ids, attention_mask, prompt_length, response_ids)
                 old_values = old_values * response_mask
 
-                # InstructGPT-style reward: per-token KL penalty, plus the reward-model score on the last token
                 kl = (old_logprobs - ref_logprobs) * response_mask
                 token_rewards = -args.kl_coef * kl
                 last_token_index = (response_mask.sum(dim=1).long() - 1).clamp(min=0)
@@ -156,7 +150,6 @@ def train(args):
                 advantages, returns = gae_advantages(token_rewards, old_values, response_mask, args.gamma, args.gae_lambda)
                 advantages = whiten(advantages, response_mask)
 
-            # PPO update: several epochs over the same rollout, clipped against the old policy
             for ppo_epoch in range(args.ppo_epochs):
                 with torch.autocast(device.type, dtype=torch.bfloat16):
                     logprobs, values = response_logprobs_and_values(model, value_head, full_ids, attention_mask, prompt_length, response_ids)

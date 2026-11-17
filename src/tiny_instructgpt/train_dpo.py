@@ -86,7 +86,6 @@ class DPOTrainer(Trainer):
         labels = batch_inputs['input_ids'][:, 1:]
         token_logps = torch.gather(F.log_softmax(logits, dim=-1), 2, labels.unsqueeze(-1)).squeeze(-1)
 
-        # token_logps[:, t] scores token t + 1, so the response starts at index prompt_length - 1
         positions = torch.arange(labels.shape[1], device=labels.device).unsqueeze(0)
         response_mask = (positions >= prompt_lengths.unsqueeze(1) - 1) & batch_inputs['attention_mask'][:, 1:].bool()
         return (token_logps * response_mask).sum(dim=-1)
@@ -104,7 +103,6 @@ def train(args):
     tokenizer.padding_side = 'right'
 
     def apply_chat_template(example):
-        # Prompt ends with the assistant header; chosen / rejected hold only the completions
         prompt_text = tokenizer.apply_chat_template(example['chosen'][:-1], add_generation_prompt=True, tokenize=False)
         chosen_text = tokenizer.apply_chat_template(example['chosen'], tokenize=False)
         rejected_text = tokenizer.apply_chat_template(example['rejected'], tokenize=False)
@@ -123,7 +121,6 @@ def train(args):
         remove_columns=raw_dataset['test_prefs'].column_names,
     )
 
-    # Trainable weights in float32 (bf16=True runs the math in bf16); the frozen reference can stay bf16
     model = AutoModelForCausalLM.from_pretrained(sft_model_path, dtype=torch.float32)
     ref_model = AutoModelForCausalLM.from_pretrained(sft_model_path, dtype=torch.bfloat16)
 

@@ -23,11 +23,9 @@ parser.add_argument('--output_name', default="rm", type=str)
 args = parser.parse_args()
 
 def train(args):
-    # Same preference pairs as DPO: full conversations, TRL applies the chat template
     raw_dataset = datasets.load_dataset(args.hf_dataset_name)
     dataset = raw_dataset.select_columns(['chosen', 'rejected'])
 
-    # Initialized from the SFT model, as in InstructGPT
     sft_model_path = str(ROOT / args.sft_model)
     tokenizer = AutoTokenizer.from_pretrained(sft_model_path)
     model = AutoModelForSequenceClassification.from_pretrained(sft_model_path, num_labels=1, dtype=torch.float32)

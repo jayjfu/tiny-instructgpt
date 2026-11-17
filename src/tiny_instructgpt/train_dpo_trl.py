@@ -25,7 +25,6 @@ parser.add_argument('--output_name', default="dpo", type=str)
 args = parser.parse_args()
 
 def to_conversational(example):
-    # TRL applies the chat template itself; chosen / rejected hold only the assistant replies
     return {
         "prompt": example['chosen'][:-1],
         "chosen": example['chosen'][-1:],

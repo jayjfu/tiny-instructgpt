@@ -36,7 +36,6 @@ class RewardModelTrainer(Trainer):
         reward_chosen = outputs_chosen.logits.squeeze(-1)
         reward_rejected = outputs_rejected.logits.squeeze(-1)
 
-        # Pairwise ranking loss
         loss = -F.logsigmoid(reward_chosen - reward_rejected).mean()
 
         return (loss, {"loss": loss, "reward_chosen": reward_chosen, "reward_rejected": reward_rejected}) if return_outputs else loss
@@ -54,11 +53,9 @@ class RewardModelTrainer(Trainer):
             return loss, None, dummy_labels
 
 def train(args):
-    # Same preference pairs as DPO
     raw_dataset = datasets.load_dataset(args.hf_dataset_name)
     raw_dataset = datasets.DatasetDict({split: raw_dataset[split] for split in ['train_prefs', 'test_prefs']})
 
-    # Initialized from the SFT model, as in InstructGPT
     sft_model_path = str(ROOT / args.sft_model)
     tokenizer = AutoTokenizer.from_pretrained(sft_model_path)
 
@@ -78,7 +75,6 @@ def train(args):
     )
 
     def paired_collator(features):
-        # Pad chosen and rejected to the same length
         max_len = max(len(feature[f"input_ids_{column}"]) for feature in features for column in ['chosen', 'rejected'])
 
         batch = {}

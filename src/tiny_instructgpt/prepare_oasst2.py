@@ -18,7 +18,6 @@ def reply_rank(reply):
     return reply['rank'] if reply.get('rank') is not None else float('inf')
 
 def best_branch(node):
-    # Follow the highest-ranked reply at each level, so each tree gives one coherent conversation
     messages = []
     while node is not None:
         messages.append({"role": ROLE_MAPPING[node['role']], "content": node['text']})
@@ -33,7 +32,6 @@ def main():
     output_path = ROOT / args.output_file
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    num_written = 0
     with open(ROOT / args.input_file) as input_file, open(output_path, 'w') as output_file:
         for line in input_file:
             root = json.loads(line)['prompt']
@@ -45,9 +43,6 @@ def main():
             if SYSTEM_PROMPT:
                 messages = [{"role": 'system', "content": SYSTEM_PROMPT}] + messages
             output_file.write(json.dumps({"messages": messages}, ensure_ascii=False) + "\n")
-            num_written += 1
-
-    print(f"Wrote {num_written} conversations to {output_path}")
 
 if __name__ == "__main__":
     main()
